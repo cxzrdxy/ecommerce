@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # 核心数据库：PostgreSQL + pgvector
   db:
@@ -35,12 +33,12 @@ services:
       retries: 5
 
   # v4.0 新增:  Celery Worker
-  celery_worker: 
+  celery_worker:
     build: .
     container_name: ecommerce_celery_worker
     command: celery -A app.celery_app worker --loglevel=info --concurrency=4 -E
     depends_on:
-      postgres: 
+      db:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -48,6 +46,7 @@ services:
       - .env
     volumes:
       - ./app:/app/app
+      - ./scripts:/app/scripts
     restart: unless-stopped
 
   # FastAPI 应用
@@ -58,18 +57,38 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      postgres:
+      db:
         condition: service_healthy
       redis:
-        condition:  service_healthy
+        condition: service_healthy
       celery_worker:
         condition: service_started
     env_file:
       - .env
     volumes:
       - ./app:/app/app
+      - ./scripts:/app/scripts
+    restart: unless-stopped
+
+  # Gradio 前端
+  frontend:
+    build: .
+    container_name: ecommerce_frontend
+    command: python -m app.frontend.customer_ui
+    ports:
+      - "7860:7860"
+    depends_on:
+      app:
+        condition: service_started
+    env_file:
+      - .env
+    environment:
+      - API_BASE_URL=http://app:8000/api/v1
+    volumes:
+      - ./app:/app/app
+      - ./scripts:/app/scripts
     restart: unless-stopped
 
 volumes:
-  postgres_data: 
+  postgres_data:
   redis_data:

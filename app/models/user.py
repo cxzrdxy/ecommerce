@@ -53,11 +53,17 @@ class User(SQLModel, table=True):
     @staticmethod
     def hash_password(password: str) -> str:
         """密码加密"""
+        # 确保密码不超过 72 字节
+        password = password[:72]
         return pwd_context.hash(password)
     
     def verify_password(self, password: str) -> bool:
         """验证密码"""
-        return pwd_context.verify(password, self.password_hash)
+        # 确保密码不超过 72 字节
+        password = password[:72]
+        # 使用 bcrypt 直接验证
+        import bcrypt
+        return bcrypt.checkpw(password.encode('utf-8'), self.password_hash.encode('utf-8'))
     
     class Config:
         json_schema_extra = {
