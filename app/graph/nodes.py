@@ -58,7 +58,7 @@ class QwenEmbeddings(Embeddings):
                     "input": texts,  # 通义千问使用 input 参数
                     "dimensions": self.dimensions
                 },
-                timeout=30.0
+                timeout=10.0
             )
             response.raise_for_status()
             data = response.json()
@@ -131,7 +131,7 @@ async def retrieve(state: AgentState) -> dict:
             select(KnowledgeChunk, distance_col)
             .where(KnowledgeChunk.is_active) # type: ignore
             .order_by(distance_col)
-            .limit(5)
+            .limit(3)
         )
         result = await session.exec(stmt)
         results = result.all() 

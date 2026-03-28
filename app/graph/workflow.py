@@ -95,6 +95,9 @@ async def compile_app_graph():
     # 使用 Redis URL 创建 checkpointer（AsyncRedisSaver 接受 redis_url: str）
     checkpointer = AsyncRedisSaver(redis_url=settings.REDIS_URL)
     
+    # 初始化 Redis 索引（新版本需要显式调用）
+    await checkpointer.asetup()
+    
     # 编译图
     compiled_graph = workflow.compile(checkpointer=checkpointer)
     

@@ -18,9 +18,9 @@ services:
       timeout: 5s
       retries: 5
 
-  # 会话记忆缓存：Redis
+  # 会话记忆缓存：Redis (带 RedisJSON 模块)
   redis:
-    image: redis:7-alpine
+    image: redis/redis-stack-server:latest
     container_name: ecommerce_redis
     ports:
       - "6379:6379"
@@ -70,7 +70,7 @@ services:
       - ./scripts:/app/scripts
     restart: unless-stopped
 
-  # Gradio 前端
+  # Gradio 前端 - 用户端
   frontend:
     build: .
     container_name: ecommerce_frontend
@@ -83,7 +83,26 @@ services:
     env_file:
       - .env
     environment:
-      - API_BASE_URL=http://app:8000/api/v1
+      - API_BASE_URL=http://host.docker.internal:8000/api/v1
+    volumes:
+      - ./app:/app/app
+      - ./scripts:/app/scripts
+    restart: unless-stopped
+
+  # Gradio 前端 - 管理员后台
+  admin:
+    build: .
+    container_name: ecommerce_admin
+    command: python -m app.frontend.admin_dashboard
+    ports:
+      - "7861:7861"
+    depends_on:
+      app:
+        condition: service_started
+    env_file:
+      - .env
+    environment:
+      - API_BASE_URL=http://host.docker.internal:8000/api/v1
     volumes:
       - ./app:/app/app
       - ./scripts:/app/scripts

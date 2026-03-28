@@ -83,6 +83,68 @@ class ChatClient:
         except Exception as e:
             return False, f"请求失败: {str(e)}", {}
     
+    def send_message_stream(self, message: str):
+        """流式发送消息，生成器逐字返回"""
+        if not message.strip():
+            yield False, "消息不能为空", {}
+            return
+        
+        headers = {
+            "Authorization": f"Bearer {self.token}",
+            "Content-Type": "application/json"
+        }
+        
+        try:
+            print(f"📤 [{self.username}] 发送消息: {message}")
+            
+            response = requests.post(
+                f"{API_BASE_URL}/chat",
+                headers=headers,
+                json={
+                    "question": message,
+                    "thread_id": self.thread_id
+                },
+                stream=True,
+                timeout=60
+            )
+            
+            if response.status_code != 200:
+                error_msg = f"API 错误 {response.status_code}"
+                try:
+                    error_detail = response.json()
+                    error_msg += f": {error_detail.get('detail', response.text)}"
+                except:
+                    error_msg += f": {response.text[: 200]}"
+                yield False, error_msg, {}
+                return
+            
+            # 流式接收并逐字返回
+            full_answer = ""
+            for line in response.iter_lines():
+                if line:
+                    line_str = line.decode('utf-8')
+                    if line_str.startswith('data: '):
+                        data_str = line_str[6:]
+                        if data_str == '[DONE]':
+                            break
+                        try:
+                            data = json.loads(data_str)
+                            if 'token' in data:
+                                full_answer += data['token']
+                                yield True, full_answer, {"status": "STREAMING"}
+                            elif 'error' in data:
+                                yield False, f"Agent 错误: {data['error']}", {}
+                                return
+                        except json.JSONDecodeError:
+                            pass
+            
+            # 检查状态
+            status_info = self.check_status()
+            yield True, full_answer, status_info
+            
+        except Exception as e:
+            yield False, f"请求失败: {str(e)}", {}
+    
     def check_status(self) -> dict:
         """检查会话状态"""
         headers = {"Authorization": f"Bearer {self.token}"}
@@ -371,7 +433,7 @@ def create_chat_interface():
             return ""
 
         def send_and_update_v2(message, history, client):
-            """适配 Gradio 4.0 messages 格式的消息处理"""
+            """适配 Gradio 4.0 messages 格式的消息处理 - 支持流式输出"""
             if not client:
                 gr.Warning("会话已过期，请重新登录")
                 yield history, message, ""
@@ -385,22 +447,36 @@ def create_chat_interface():
             history.append({"role": "user", "content": message})
             yield history, "", '<span class="status-badge" style="background:#e0f2fe; color:#0369a1;">Thinking...</span>'
             
-            success, response, status_info = client.send_message(message)
+            # 使用流式生成器逐字显示
+            full_response = ""
+            status_info_final = {}
             
-            if not success:
-                history.append({"role": "assistant", "content": f"❌ Error: {response}"})
-                yield history, "", '<span class="status-badge" style="background:#fee2e2; color:#b91c1c;">Error</span>'
-                return
+            for success, response, status_info in client.send_message_stream(message):
+                if not success:
+                    history.append({"role": "assistant", "content": f"❌ Error: {response}"})
+                    yield history, "", '<span class="status-badge" style="background:#fee2e2; color:#b91c1c;">Error</span>'
+                    return
+                
+                full_response = response
+                status_info_final = status_info
+                
+                # 更新助手消息（流式显示）
+                if len(history) > 0 and history[-1]["role"] == "assistant":
+                    history[-1]["content"] = full_response
+                else:
+                    history.append({"role": "assistant", "content": full_response})
+                
+                yield history, "", '<span class="status-badge" style="background:#fef3c7; color:#b45309;">Typing...</span>'
             
-            # 处理回复内容
-            final_content = response
-            status = status_info.get("status", "PROCESSING")
+            # 流式输出完成，处理最终状态
+            status = status_info_final.get("status", "PROCESSING")
+            final_content = full_response
             
             # 追加漂亮的 HTML 卡片
             if status in ["WAITING_ADMIN", "APPROVED", "REJECTED"]:
-                final_content += render_audit_card_v2(status_info)
-            
-            history.append({"role": "assistant", "content": final_content})
+                final_content += render_audit_card_v2(status_info_final)
+                if len(history) > 0 and history[-1]["role"] == "assistant":
+                    history[-1]["content"] = final_content
             
             status_text = "Ready"
             status_color = "#dcfce7; color:#15803d" # Green
